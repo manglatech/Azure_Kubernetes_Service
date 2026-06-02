@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aks-spring-demo-config
+  namespace: aks-demo
+data:
+  APP_MESSAGE: "Hello from Spring Boot on Azure Kubernetes Service - Dhaval"
