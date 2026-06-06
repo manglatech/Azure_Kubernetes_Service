@@ -28,6 +28,11 @@ spec:
                 configMapKeyRef:
                   name: aks-spring-demo-config
                   key: APP_MESSAGE
+            - name: USER_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: aks-spring-demo-config
+                  key: USER_SERVICE_URL
           resources:
             requests:
               cpu: 100m

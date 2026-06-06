@@ -4,5 +4,5 @@ resources:
   - ../../base
 images:
   - name: aks-spring-demo
-    newName: YOUR_ACR_NAME.azurecr.io/aks-spring-demo
+    newName: aksdemodemo656256.azurecr.io/aks-spring-demo
     newTag: "1.0.0"

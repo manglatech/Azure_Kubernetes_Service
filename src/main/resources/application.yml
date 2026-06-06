@@ -8,6 +8,10 @@ spring:
 app:
   message: ${APP_MESSAGE:Hello from Spring Boot on Azure Kubernetes Service - Dhaval}
 
+user:
+  service:
+    url: ${USER_SERVICE_URL:http://localhost:8081}
+
 management:
   endpoints:
     web:

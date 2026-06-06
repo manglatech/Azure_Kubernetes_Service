@@ -5,3 +5,4 @@ metadata:
   namespace: aks-demo
 data:
   APP_MESSAGE: "Hello from Spring Boot on Azure Kubernetes Service - Dhaval"
+  USER_SERVICE_URL: "http://azure-user-service.user-demo.svc.cluster.local"

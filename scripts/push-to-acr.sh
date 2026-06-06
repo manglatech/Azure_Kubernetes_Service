@@ -7,7 +7,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${ACR_NAME}.azurecr.io/aks-spring-demo:${TAG}"
 
 az acr login --name "${ACR_NAME}"
-docker build -t "${IMAGE}" "${ROOT}"
+# AKS nodes are amd64; Mac builds arm64 by default — must cross-build for Azure.
+docker build --platform linux/amd64 -t "${IMAGE}" "${ROOT}"
 docker push "${IMAGE}"
 
 echo "Pushed ${IMAGE}"
