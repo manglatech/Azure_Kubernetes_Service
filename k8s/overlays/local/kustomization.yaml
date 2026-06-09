@@ -5,7 +5,7 @@ resources:
 images:
   - name: aks-spring-demo
     newName: aks-spring-demo
-    newTag: "1.0.0"
+    newTag: "20260609-152940"
 patches:
   - target:
       kind: Deployment

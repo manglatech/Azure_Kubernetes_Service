@@ -11,6 +11,7 @@ app:
 user:
   service:
     url: ${USER_SERVICE_URL:http://localhost:8081}
+    api-key: ${USER_SERVICE_API_KEY:dev-api-key-not-for-production}
 
 management:
   endpoints:

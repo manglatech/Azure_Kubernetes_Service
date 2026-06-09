@@ -1,11 +1,12 @@
 package com.demo.aks.web;
 
 import com.demo.aks.client.UserServiceClient;
+import com.demo.aks.model.User;
+import com.demo.aks.model.UserRequest;
 import com.demo.aks.model.UsersResponse;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.Map;
@@ -51,5 +52,16 @@ public class DemoController {
                 "timestamp", Instant.now().toString(),
                 "hostname", System.getenv().getOrDefault("HOSTNAME", "local")
         );
+    }
+
+    @PostMapping("/demo/users")
+    @ResponseStatus(HttpStatus.CREATED)
+    public User createUser(@RequestBody UserRequest request) {
+        return userServiceClient.createUser(request);
+    }
+
+    @PutMapping("/demo/users/{id}")
+    public User updateUser(@PathVariable Long id, @RequestBody UserRequest request) {
+        return userServiceClient.updateUser(id, request);
     }
 }

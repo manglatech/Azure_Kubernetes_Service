@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${IMAGE:-aks-spring-demo:1.0.0}"
+TAG="${TAG:-$(date +%Y%m%d-%H%M%S)}"
+IMAGE="aks-spring-demo:${TAG}"
 IMAGE_TAR="${IMAGE_TAR:-/tmp/aks-spring-demo.tar}"
 LOADER_POD="${LOADER_POD:-image-loader}"
 
@@ -69,6 +70,11 @@ kubectl cp "${IMAGE_TAR}" "aks-demo/${LOADER_POD}:/host/tmp/aks-spring-demo.tar"
 kubectl exec -n aks-demo "${LOADER_POD}" -- chroot /host ctr -n k8s.io images import /tmp/aks-spring-demo.tar
 kubectl delete pod "${LOADER_POD}" -n aks-demo --wait=false
 
+echo "Stamping local overlay with image tag: ${TAG}"
+KUSTOMIZATION="${ROOT}/k8s/overlays/local/kustomization.yaml"
+tmp=$(mktemp)
+sed "s/newTag: .*/newTag: \"${TAG}\"/" "${KUSTOMIZATION}" > "${tmp}" && mv "${tmp}" "${KUSTOMIZATION}"
+
 echo "Applying Kubernetes manifests (local overlay)..."
 kubectl apply -k "${ROOT}/k8s/overlays/local"
 
@@ -77,7 +83,7 @@ kubectl rollout status deployment/aks-spring-demo -n aks-demo --timeout=180s
 
 INGRESS_IP="$("${ROOT}/scripts/ingress-address.sh" || true)"
 echo ""
-echo "Demo deployed behind NGINX Ingress."
+echo "Demo deployed — image: ${IMAGE}"
 echo "  kubectl get ingress -n aks-demo"
 echo "  kubectl get svc -n ingress-nginx ingress-nginx-controller"
 echo ""

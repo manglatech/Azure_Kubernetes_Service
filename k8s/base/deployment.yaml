@@ -23,6 +23,7 @@ spec:
             - containerPort: 8080
               name: http
           env:
+            # Non-sensitive config from ConfigMap
             - name: APP_MESSAGE
               valueFrom:
                 configMapKeyRef:
@@ -33,6 +34,12 @@ spec:
                 configMapKeyRef:
                   name: aks-spring-demo-config
                   key: USER_SERVICE_URL
+            # Sensitive credentials from Secret
+            - name: USER_SERVICE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aks-spring-demo-secrets
+                  key: USER_SERVICE_API_KEY
           resources:
             requests:
               cpu: 100m

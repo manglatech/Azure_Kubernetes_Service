@@ -16,12 +16,14 @@ else
 fi
 
 # Azure AKS: health probe must hit /healthz on the controller.
+# Uses kubectl patch --type=merge so only the annotation is changed — avoids
+# the "spec.ports: Required value" error that kubectl apply causes on a partial manifest.
 if [[ "${AZURE_INGRESS_PATCH:-}" == "true" ]] || \
    kubectl get nodes -o jsonpath='{.items[0].spec.providerID}' 2>/dev/null | grep -q Azure; then
-  if [[ -f "${AZURE_PATCH}" ]]; then
-    echo "Applying Azure Load Balancer health probe patch..."
-    kubectl apply -f "${AZURE_PATCH}"
-  fi
+  echo "Applying Azure Load Balancer health probe annotation..."
+  kubectl patch svc ingress-nginx-controller -n ingress-nginx \
+    --type=merge \
+    -p '{"metadata":{"annotations":{"service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path":"/healthz"}}}'
 fi
 
 echo "Waiting for ingress-nginx controller..."
