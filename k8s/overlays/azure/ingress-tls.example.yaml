@@ -1,0 +1,29 @@
+# Optional: enable TLS on Azure with cert-manager + a real DNS name.
+# 1. Install cert-manager and a ClusterIssuer (e.g. letsencrypt-prod)
+# 2. Point your domain A-record to the ingress LoadBalancer IP
+# 3. Copy to ingress-patch.yaml, set DEMO_HOST, and add to azure/kustomization.yaml patches
+#
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: aks-spring-demo
+#   namespace: aks-demo
+#   annotations:
+#     cert-manager.io/cluster-issuer: letsencrypt-prod
+#     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+# spec:
+#   tls:
+#     - hosts:
+#         - demo.yourdomain.com
+#       secretName: aks-spring-demo-tls
+#   rules:
+#     - host: demo.yourdomain.com
+#       http:
+#         paths:
+#           - path: /api
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: aks-spring-demo
+#                 port:
+#                   number: 80

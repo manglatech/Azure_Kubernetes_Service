@@ -22,6 +22,9 @@ if [[ "${USER_READY}" -lt 1 ]]; then
   exit 1
 fi
 
+echo "Installing NGINX Ingress Controller (if needed)..."
+AZURE_INGRESS_PATCH=true "${ROOT}/scripts/install-ingress-nginx.sh"
+
 echo "Applying Kubernetes manifests (azure overlay)..."
 kubectl apply -k "${ROOT}/k8s/overlays/azure"
 
@@ -29,9 +32,25 @@ echo "Waiting for deployment..."
 kubectl rollout status deployment/aks-spring-demo -n aks-demo --timeout=180s
 
 echo ""
-echo "Demo app deployed. Get the external IP:"
-echo "  kubectl get svc aks-spring-demo -n aks-demo"
+echo "Waiting for Ingress LoadBalancer IP (up to 3 minutes)..."
+for _ in $(seq 1 36); do
+  INGRESS_IP="$("${ROOT}/scripts/ingress-address.sh" || true)"
+  if [[ -n "${INGRESS_IP}" ]]; then
+    break
+  fi
+  sleep 5
+done
+
 echo ""
-echo "Then call:"
-echo "  curl http://<EXTERNAL-IP>/api/hello"
-echo "  curl http://<EXTERNAL-IP>/api/demo/users"
+echo "Demo app deployed behind NGINX Ingress."
+echo "  kubectl get ingress -n aks-demo"
+echo "  kubectl get svc -n ingress-nginx ingress-nginx-controller"
+echo ""
+if [[ -n "${INGRESS_IP}" ]]; then
+  echo "Ingress LoadBalancer IP: ${INGRESS_IP}"
+  echo "  curl http://${INGRESS_IP}/api/hello"
+  echo "  curl http://${INGRESS_IP}/api/demo/users"
+else
+  echo "LoadBalancer IP not assigned yet. Watch:"
+  echo "  kubectl get svc -n ingress-nginx ingress-nginx-controller -w"
+fi

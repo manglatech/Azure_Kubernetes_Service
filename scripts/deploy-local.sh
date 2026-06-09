@@ -16,6 +16,14 @@ if ! kubectl cluster-info &>/dev/null; then
   exit 1
 fi
 
+echo "Installing NGINX Ingress Controller (if needed)..."
+"${ROOT}/scripts/install-ingress-nginx.sh"
+
+if [[ "${ENABLE_INGRESS_TLS:-true}" == "true" ]]; then
+  echo "Creating local TLS Secret for host demo.local..."
+  HOST=demo.local "${ROOT}/scripts/generate-tls-secret.sh"
+fi
+
 NODE_NAME="$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')"
 
 echo "Building image: ${IMAGE}"
@@ -67,9 +75,21 @@ kubectl apply -k "${ROOT}/k8s/overlays/local"
 echo "Waiting for deployment..."
 kubectl rollout status deployment/aks-spring-demo -n aks-demo --timeout=180s
 
+INGRESS_IP="$("${ROOT}/scripts/ingress-address.sh" || true)"
 echo ""
-echo "Demo deployed. Get the external IP:"
-echo "  kubectl get svc aks-spring-demo -n aks-demo"
+echo "Demo deployed behind NGINX Ingress."
+echo "  kubectl get ingress -n aks-demo"
+echo "  kubectl get svc -n ingress-nginx ingress-nginx-controller"
 echo ""
-echo "Then call:"
-echo "  curl http://<EXTERNAL-IP>/api/hello"
+if [[ -n "${INGRESS_IP}" ]]; then
+  echo "Ingress LoadBalancer address: ${INGRESS_IP}"
+  echo "  curl http://${INGRESS_IP}/api/hello"
+else
+  echo "LoadBalancer IP not ready yet (common on Docker Desktop). Use port-forward:"
+  echo "  kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80 8443:443"
+  echo "  curl http://localhost:8080/api/hello"
+fi
+echo ""
+echo "TLS + host routing (local overlay uses demo.local):"
+echo "  echo '127.0.0.1 demo.local' | sudo tee -a /etc/hosts"
+echo "  curl -k https://demo.local:8443/api/hello   # with port-forward on 8443"

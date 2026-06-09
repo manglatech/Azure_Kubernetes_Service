@@ -6,6 +6,7 @@ resources:
   - configmap.yaml
   - deployment.yaml
   - service.yaml
+  - ingress.yaml
 images:
   - name: aks-spring-demo
     newName: aks-spring-demo

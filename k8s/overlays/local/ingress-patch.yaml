@@ -1,0 +1,49 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aks-spring-demo
+  namespace: aks-demo
+  annotations:
+    # Keep HTTP working for IP/port-forward tests; use HTTPS explicitly for TLS learning
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  tls:
+    - hosts:
+        - demo.local
+      secretName: aks-spring-demo-tls
+  rules:
+    # Catch-all — required for curl http://<IP>/api/hello (no Host header)
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: aks-spring-demo
+                port:
+                  number: 80
+          - path: /actuator
+            pathType: Prefix
+            backend:
+              service:
+                name: aks-spring-demo
+                port:
+                  number: 80
+    # Host-based routing — for TLS learning with demo.local
+    - host: demo.local
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: aks-spring-demo
+                port:
+                  number: 80
+          - path: /actuator
+            pathType: Prefix
+            backend:
+              service:
+                name: aks-spring-demo
+                port:
+                  number: 80

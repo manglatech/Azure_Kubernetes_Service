@@ -9,8 +9,9 @@ A minimal Java 21 + Spring Boot 3 application packaged for Docker and deployed t
 | Spring Boot REST API | `/api/hello`, `/api/info`, `/api/demo/users` |
 | Spring Actuator | Liveness/readiness probes for Kubernetes |
 | Dockerfile | Multi-stage build (Maven + JRE) |
-| `k8s/` manifests | Namespace, ConfigMap, Deployment (2 replicas), LoadBalancer Service |
-| Scripts | Local deploy, Azure resource setup, ACR push |
+| `k8s/` manifests | Namespace, ConfigMap, Deployment (2 replicas), ClusterIP Service, Ingress |
+| NGINX Ingress Controller | Cluster-wide LoadBalancer entry point (`ingress-nginx` namespace) |
+| Scripts | Local/Azure deploy, ingress install, ACR push |
 
 ## Prerequisites
 
@@ -60,10 +61,18 @@ Then deploy this demo app:
 cd ../Azure_Kubernetes_Service
 chmod +x scripts/*.sh
 ./scripts/deploy-local.sh
-kubectl get svc aks-spring-demo -n aks-demo -w
-# When EXTERNAL-IP is assigned:
-curl http://<EXTERNAL-IP>/api/hello
-curl http://<EXTERNAL-IP>/api/demo/users
+kubectl get ingress -n aks-demo
+kubectl get svc -n ingress-nginx ingress-nginx-controller
+# Easiest on Docker Desktop (LB IP often not reachable from Mac):
+./scripts/curl-demo.sh /api/hello
+./scripts/curl-demo.sh /api/demo/users
+
+# Or manually via port-forward:
+kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80
+curl http://localhost:8080/api/hello
+
+# On Azure AKS, the ingress IP is a real public IP:
+curl http://<INGRESS-IP>/api/hello
 ```
 
 ## Deploy to Azure (AKS)
@@ -124,30 +133,231 @@ ACR and image tag are already set in `k8s/overlays/azure/kustomization.yaml`.
 ```bash
 ./scripts/deploy-azure.sh
 kubectl get pods -n aks-demo
-kubectl get svc aks-spring-demo -n aks-demo
+kubectl get ingress -n aks-demo
+kubectl get svc -n ingress-nginx ingress-nginx-controller
 ```
 
-Azure provisions a **public LoadBalancer** IP. Test:
+The deploy script installs **NGINX Ingress Controller** (LoadBalancer) and routes traffic to the demo app (ClusterIP). Test via the ingress IP:
 
 ```bash
-curl http://<EXTERNAL-IP>/api/hello
-curl http://<EXTERNAL-IP>/api/info
-curl http://<EXTERNAL-IP>/api/demo/users
+./scripts/ingress-address.sh
+curl http://<INGRESS-IP>/api/hello
+curl http://<INGRESS-IP>/api/info
+curl http://<INGRESS-IP>/api/demo/users
+```
+
+Install ingress only (without redeploying the app):
+
+```bash
+./scripts/install-ingress-nginx.sh
 ```
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  User[Client] --> LB[Azure Load Balancer]
-  LB --> SVC[AKS Demo Service]
+  User[Client] --> LB[Public Load Balancer]
+  LB --> ING[NGINX Ingress Controller]
+  ING --> IR[Ingress rules]
+  IR --> SVC[Demo ClusterIP]
   SVC --> P1[Demo Pod 1]
   SVC --> P2[Demo Pod 2]
-  P1 --> USVC[User Service ClusterIP]
+  P1 --> USVC[User ClusterIP]
   P2 --> USVC
   USVC --> U1[User Pod 1]
   USVC --> U2[User Pod 2]
 ```
+
+Traffic flow: **Client → Ingress LoadBalancer → NGINX → Ingress rules → `aks-spring-demo` ClusterIP → pods**. The user service stays internal (ClusterIP only).
+
+Interactive diagram: [azure-services-architecture](/Users/dhaval/.cursor/projects/Users-dhaval-PlayGround-Azure-Services/canvases/azure-services-architecture.canvas.tsx) (open beside chat in Cursor).
+
+## Learn: Ingress, routing, TLS, cost control
+
+This project implements the **Week 1** learning goal: one public entry point, path/host routing, TLS secrets, and NGINX annotations.
+
+### Cost control — one LoadBalancer
+
+| Before (per-app LoadBalancer) | After (Ingress) |
+|-------------------------------|-----------------|
+| Demo Service `type: LoadBalancer` → **$15–20+/mo each** | Demo Service `type: ClusterIP` → **no public IP** |
+| Add more apps → more LoadBalancers | **One** `ingress-nginx-controller` LoadBalancer serves many Ingress rules |
+
+```mermaid
+flowchart LR
+  subgraph before [Before — expensive]
+    LB1[LB per app]
+    App1[App Service]
+    LB1 --> App1
+  end
+  subgraph after [After — one entry point]
+    LB2[Single Ingress LB]
+    ING[Ingress rules]
+    App2[App ClusterIP]
+    App3[Another app ClusterIP]
+    LB2 --> ING
+    ING --> App2
+    ING --> App3
+  end
+```
+
+**In this repo:** only `ingress-nginx-controller` (namespace `ingress-nginx`) has `type: LoadBalancer`. The demo app and user service are ClusterIP.
+
+### IngressClass — which controller handles traffic?
+
+An **Ingress** resource is just routing rules. An **IngressClass** tells Kubernetes which controller implementation should reconcile it.
+
+```bash
+kubectl get ingressclass
+# NAME    CONTROLLER             PARAMETERS   AGE
+# nginx   k8s.io/ingress-nginx   <none>       ...
+```
+
+Our Ingress sets `spec.ingressClassName: nginx`, which binds it to the NGINX Ingress Controller installed by `scripts/install-ingress-nginx.sh`.
+
+| Concept | Role |
+|---------|------|
+| **Ingress** | HTTP routing rules (paths, hosts, TLS) |
+| **IngressClass** | Links Ingress → controller (nginx, traefik, etc.) |
+| **Ingress Controller** | Pod(s) that read Ingress objects and configure the proxy (NGINX) |
+
+### Path-based routing
+
+Defined in `k8s/base/ingress.yaml`:
+
+| Path prefix | Routes to | Example |
+|-------------|-----------|---------|
+| `/api` | `aks-spring-demo:80` | `/api/hello`, `/api/demo/users` |
+| `/actuator` | `aks-spring-demo:80` | `/actuator/health` |
+
+```yaml
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: aks-spring-demo
+                port:
+                  number: 80
+```
+
+**Try it:**
+```bash
+./scripts/curl-demo.sh /api/hello           # auto-detects best access method
+curl http://<INGRESS-IP>/api/hello          # Azure AKS (public IP)
+curl http://localhost:8080/api/hello        # Docker Desktop (with port-forward)
+```
+
+> **Docker Desktop note:** `kubectl get svc` may show `EXTERNAL-IP: 172.18.0.x` but that IP is **inside Docker's network** and is usually **not reachable** from your Mac. Use `./scripts/curl-demo.sh` or port-forward instead.
+
+With multiple apps, each path prefix would point to a different `Service` — same Ingress, same LoadBalancer.
+
+### Host-based routing (local overlay)
+
+`k8s/overlays/local/ingress-patch.yaml` adds a **host rule** so traffic must use `Host: demo.local`:
+
+```yaml
+spec:
+  rules:
+    - host: demo.local
+      http:
+        paths: ...
+```
+
+**Setup:**
+```bash
+echo '127.0.0.1 demo.local' | sudo tee -a /etc/hosts
+kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80 8443:443
+curl -H 'Host: demo.local' http://localhost:8080/api/hello
+```
+
+### Annotations — NGINX-specific behavior
+
+Annotations on the Ingress metadata configure the controller without changing the portable `spec`:
+
+| Annotation | Purpose in this project |
+|------------|-------------------------|
+| `nginx.ingress.kubernetes.io/proxy-body-size` | Max upload size (`1m`) |
+| `nginx.ingress.kubernetes.io/ssl-redirect` | `false` on Azure/base; `true` on local TLS overlay |
+| `nginx.ingress.kubernetes.io/force-ssl-redirect` | Redirect HTTP → HTTPS when TLS enabled |
+| `cert-manager.io/cluster-issuer` | (Azure example) Auto-issue Let's Encrypt certs |
+
+Inspect live annotations:
+```bash
+kubectl get ingress aks-spring-demo -n aks-demo -o yaml | grep -A20 annotations
+```
+
+### TLS secrets
+
+TLS certificates are stored in a Kubernetes **Secret** (`type: kubernetes.io/tls`), referenced by the Ingress:
+
+```yaml
+spec:
+  tls:
+    - hosts:
+        - demo.local
+      secretName: aks-spring-demo-tls   # Secret name
+  rules:
+    - host: demo.local
+      ...
+```
+
+**Local — self-signed cert (learning):**
+```bash
+./scripts/generate-tls-secret.sh              # creates Secret aks-spring-demo-tls
+kubectl get secret aks-spring-demo-tls -n aks-demo
+./scripts/deploy-local.sh                   # TLS enabled by default (ENABLE_INGRESS_TLS=true)
+```
+
+`deploy-local.sh` auto-generates the Secret. Test HTTPS:
+```bash
+kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8443:443
+curl -k https://demo.local:8443/api/hello
+```
+
+**Azure — production TLS (optional):**
+
+See `k8s/overlays/azure/ingress-tls.example.yaml` for cert-manager + Let's Encrypt with a real domain. Requires:
+
+1. DNS A-record → ingress LoadBalancer IP
+2. [cert-manager](https://cert-manager.io/) installed on the cluster
+3. `ClusterIssuer` for Let's Encrypt
+4. Ingress patch with `cert-manager.io/cluster-issuer` annotation
+
+cert-manager creates/renews the TLS Secret automatically — you never commit private keys to Git.
+
+### Commands cheat sheet
+
+```bash
+# Controller (the one LoadBalancer)
+kubectl get svc -n ingress-nginx ingress-nginx-controller
+./scripts/ingress-address.sh
+
+# Routing rules
+kubectl get ingress -n aks-demo
+kubectl describe ingress aks-spring-demo -n aks-demo
+
+# IngressClass
+kubectl get ingressclass
+
+# TLS Secret
+kubectl get secret aks-spring-demo-tls -n aks-demo
+
+# Debug routing
+kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller --tail=50
+```
+
+### What to explore next
+
+| Exercise | Skill |
+|----------|-------|
+| Add a second path rule to a different Service | Multi-service routing |
+| Enable `ingress-tls.example.yaml` on Azure with your domain | Production TLS |
+| Add `nginx.ingress.kubernetes.io/limit-rps` annotation | Rate limiting at ingress |
+| Compare `kubectl get svc` before/after Ingress migration | Cost / architecture |
 
 ## API endpoints
 
@@ -204,7 +414,7 @@ flowchart TD
 
 | Enhancement | What to build | Kubernetes concepts |
 |-------------|---------------|---------------------|
-| **Ingress** | Replace LoadBalancer with NGINX Ingress; path/host routing | Ingress, IngressClass, TLS secrets |
+| **Ingress** | ✅ NGINX Ingress, path/host routing, local TLS Secret (see **Learn: Ingress**) | Ingress, IngressClass, TLS secrets |
 | **Secrets** | API key header on user service calls | `Secret`, `envFrom`, volume mounts |
 | **HPA** | Scale demo app 1→5 on CPU | HorizontalPodAutoscaler, metrics-server |
 | **Probe simulation** | `/api/admin/fail-readiness`, `/api/admin/fail-liveness` | Liveness vs readiness, pod lifecycle |
@@ -231,7 +441,7 @@ flowchart TD
 
 ### Top 5 recommended next steps
 
-1. **Ingress** — real-world routing; reduces LoadBalancer cost
+1. **Azure TLS with cert-manager** — enable `ingress-tls.example.yaml` with a real domain
 2. **NetworkPolicy** — secure the `user-demo` namespace
 3. **HPA + load test** — watch pods scale under load
 4. **Resilience4j on `/api/demo/users`** — realistic microservice failure handling
@@ -277,6 +487,10 @@ env:
 │       └── azure/
 └── scripts/
     ├── deploy-local.sh
+    ├── deploy-azure.sh
+    ├── install-ingress-nginx.sh
+    ├── ingress-address.sh
+    ├── generate-tls-secret.sh
     ├── azure-setup.sh
     └── push-to-acr.sh
 ```

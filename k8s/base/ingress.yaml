@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aks-spring-demo
+  namespace: aks-demo
+  labels:
+    app: aks-spring-demo
+  annotations:
+    # NGINX Ingress Controller annotations (see README "Learn: Ingress")
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  # Routes to the ingress-nginx controller (cluster-wide IngressClass)
+  ingressClassName: nginx
+  rules:
+    # Catch-all rule — works with raw LoadBalancer IP (no Host header required)
+    - http:
+        paths:
+          # Path-based routing: both prefixes reach the same Service (demo pattern)
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: aks-spring-demo
+                port:
+                  number: 80
+          - path: /actuator
+            pathType: Prefix
+            backend:
+              service:
+                name: aks-spring-demo
+                port:
+                  number: 80
